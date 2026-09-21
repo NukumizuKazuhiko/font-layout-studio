@@ -368,6 +368,10 @@ select {
           <input id="transparentBg" type="checkbox" checked>
           透明背景
         </label>
+        <label style="display:flex;align-items:center;gap:7px;color:var(--muted);font-size:12px">
+          <input id="trimExport" type="checkbox" checked>
+          自动裁切空白
+        </label>
       </div>
     </div>
   </section>
@@ -381,7 +385,8 @@ select {
     默认字体与导入字体的 SVG 都会转换为 path 轮廓。opentype.js 已内嵌，整个工具可完全离线使用。内置字体除 EndfieldByButan 外，还内嵌 Noto Sans Hans Black 与 Novecento Wide UltraBold，在"内置字体"下拉中切换（首次切换时解码）。<br>
     自由排版：启用后每个字符成为独立字形，可用鼠标 / 手指拖到任意位置，并单独设置字号、旋转角度与颜色；导出范围与画布完全一致（所见即所得）。<br>
     参考线对齐：可添加水平 / 垂直参考线（拖动移动、双击删除）；拖动字形时自动吸附到参考线、画布中线与其他字形的碰撞箱边缘 / 中心，并显示黄色对齐线；"吸附：开 / 关"可随时切换是否吸附。<br>
-    碰撞箱：每个字形的对齐碰撞箱由字体轮廓自动解析（默认字体解析 path 数据，导入字体用 opentype.js 包围盒），贴合实际墨迹而非字身盒；选中字形时以黄色虚线框显示，旋转后同步旋转。
+    碰撞箱：每个字形的对齐碰撞箱按「当前字体 + 该字」真实渲染逐字测量（含浏览器回退字体），不再套用统一模板；无墨迹的字（如空格）不参与吸附与裁切；选中字形时以黄色虚线框显示，旋转后同步旋转。<br>
+    导出裁切：勾选「自动裁切空白」后，PNG / SVG 只保留全部墨迹的外接矩形，去掉四周大片空白（普通模式与自由排版均生效）。
   </div>
 
   <div class="help" id="copyright">
@@ -419,6 +424,7 @@ const padding = document.getElementById("padding");
 const fontColor = document.getElementById("fontColor");
 const fontColorHex = document.getElementById("fontColorHex");
 const transparentBg = document.getElementById("transparentBg");
+const trimExport = document.getElementById("trimExport");
 const exportPng = document.getElementById("exportPng");
 const exportSvg = document.getElementById("exportSvg");
 const fontFile = document.getElementById("fontFile");
@@ -782,80 +788,66 @@ function currentUnitsPerEm() {
     : OUTLINE_UNITS_PER_EM;
 }
 
-function quadExtrema(p0, c, p2) {
-  const vals = [p0, p2];
-  const den = p0 - 2 * c + p2;
-  if(den !== 0) {
-    const t = (p0 - c) / den;
-    if(t > 0 && t < 1) {
-      const mt = 1 - t;
-      vals.push(mt * mt * p0 + 2 * mt * t * c + t * t * p2);
+const INK_MEASURE_PX = 256;
+let inkMeasureCtx = null;
+
+function measureInkBox(ch) {
+  if(!inkMeasureCtx) {
+    const cv = document.createElement("canvas");
+    cv.width = INK_MEASURE_PX * 2;
+    cv.height = INK_MEASURE_PX * 2;
+    inkMeasureCtx = cv.getContext("2d", {willReadFrequently:true});
+  }
+  const M = INK_MEASURE_PX;
+  const ctx = inkMeasureCtx;
+  const ox = M * 0.5;
+  const oy = M * 1.2;
+  ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+  ctx.font = M + 'px "' + currentFontFamily + '", sans-serif';
+  ctx.textBaseline = "alphabetic";
+  ctx.fillStyle = "#000";
+  ctx.fillText(ch, ox, oy);
+  const w = ctx.canvas.width;
+  const h = ctx.canvas.height;
+  const data = ctx.getImageData(0, 0, w, h).data;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for(let y = 0; y < h; y++) {
+    const row = y * w;
+    for(let x = 0; x < w; x++) {
+      if(data[(row + x) * 4 + 3] > 8) {
+        if(x < minX) minX = x;
+        if(x > maxX) maxX = x;
+        if(y < minY) minY = y;
+        if(y > maxY) maxY = y;
+      }
     }
   }
-  return vals;
+  if(minX === Infinity) return null;
+  const k = currentUnitsPerEm() / M;
+  return {x1:(minX - ox) * k, y1:(minY - oy) * k, x2:(maxX + 1 - ox) * k, y2:(maxY + 1 - oy) * k};
 }
 
-function parseOutlineBounds(d) {
-  const tokens = d.match(/[MLHVQZ]|-?\d*\.?\d+/g) || [];
-  let x = 0, y = 0, startX = 0, startY = 0, cmd = "";
-  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  const ex = (v) => { if(v < minX) minX = v; if(v > maxX) maxX = v; };
-  const ey = (v) => { if(v < minY) minY = v; if(v > maxY) maxY = v; };
-  let i = 0;
-  const num = () => parseFloat(tokens[i++]);
-  while(i < tokens.length) {
-    if(/[MLHVQZ]/.test(tokens[i])) cmd = tokens[i++];
-    if(cmd === "M" || cmd === "L") {
-      x = num(); y = num(); ex(x); ey(y);
-      if(cmd === "M") { startX = x; startY = y; cmd = "L"; }
-      continue;
-    }
-    if(cmd === "H") { x = num(); ex(x); ey(y); continue; }
-    if(cmd === "V") { y = num(); ex(x); ey(y); continue; }
-    if(cmd === "Q") {
-      const cx = num(), cy = num(), px = num(), py = num();
-      quadExtrema(x, cx, px).forEach(ex);
-      quadExtrema(y, cy, py).forEach(ey);
-      x = px; y = py;
-      continue;
-    }
-    if(cmd === "Z") { x = startX; y = startY; continue; }
-    i++;
+function advanceUnitsFor(ch) {
+  const upm = currentUnitsPerEm();
+  if(importedOpenTypeFont) {
+    return importedOpenTypeFont.charToGlyph(ch).advanceWidth || upm * 0.6;
   }
-  if(!isFinite(minX) || !isFinite(minY)) return null;
-  return {minX:minX, minY:minY, maxX:maxX, maxY:maxY};
+  return (OUTLINE_GLYPHS[ch] || {}).adv || upm * 0.6;
 }
 
 function unitInkBox(ch) {
   const key = currentFontFamily + "|" + ch;
   const cached = inkBoxCache.get(key);
   if(cached) return cached;
-  const upm = currentUnitsPerEm();
-  let box = null;
-  if(importedOpenTypeFont) {
-    try {
-      const path = importedOpenTypeFont.charToGlyph(ch).getPath(0, 0, upm);
-      if(path && typeof path.getBoundingBox === "function") {
-        const bb = path.getBoundingBox();
-        if(isFinite(bb.x1) && isFinite(bb.y1) && bb.x2 > bb.x1 && bb.y2 > bb.y1) {
-          box = {x1:bb.x1, y1:bb.y1, x2:bb.x2, y2:bb.y2};
-        }
-      }
-    } catch(err) {}
-  } else {
-    const gl = OUTLINE_GLYPHS[ch];
-    if(gl && gl.d) {
-      const b = parseOutlineBounds(gl.d);
-      if(b) box = {x1:b.minX, y1:-b.maxY, x2:b.maxX, y2:-b.minY};
-    }
-  }
+  // 逐字体逐字真实渲染测量墨迹，缺失字形不再套统一模板
+  let box = measureInkBox(ch);
+  let empty = false;
   if(!box) {
-    const adv = importedOpenTypeFont
-      ? (importedOpenTypeFont.charToGlyph(ch).advanceWidth || upm * 0.6)
-      : ((OUTLINE_GLYPHS[ch] || {}).adv || upm * 0.6);
-    box = {x1:0, y1:-upm * 0.72, x2:adv, y2:upm * 0.08};
+    empty = true;
+    box = {x1:0, y1:0, x2:advanceUnitsFor(ch), y2:0};
   }
-  inkBoxCache.set(key, box);
+  box.empty = empty;
+  if(document.fonts.check('16px "' + currentFontFamily + '"')) inkBoxCache.set(key, box);
   return box;
 }
 
@@ -880,15 +872,56 @@ function tightBox(g) {
     if(ry < top) top = ry;
     if(ry > bottom) bottom = ry;
   });
-  return {left:left, top:top, right:right, bottom:bottom};
+  return {left:left, top:top, right:right, bottom:bottom, empty:!!u.empty};
 }
 
 function snapAnchors(g) {
   const b = tightBox(g);
+  if(b.empty) return {xs:[], ys:[]};
   return {
     xs:[b.left, (b.left + b.right) / 2, b.right],
     ys:[b.top, (b.top + b.bottom) / 2, b.bottom]
   };
+}
+
+function unionInkRect(items) {
+  let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
+  items.forEach((it) => {
+    const b = tightBox(it);
+    if(b.empty) return;
+    if(b.left < x1) x1 = b.left;
+    if(b.top < y1) y1 = b.top;
+    if(b.right > x2) x2 = b.right;
+    if(b.bottom > y2) y2 = b.bottom;
+  });
+  if(x1 === Infinity) return null;
+  return {x1:Math.floor(x1), y1:Math.floor(y1), x2:Math.ceil(x2), y2:Math.ceil(y2)};
+}
+
+function cropCanvas(canvas, rect) {
+  if(!rect) return canvas;
+  const w = Math.max(1, rect.x2 - rect.x1);
+  const h = Math.max(1, rect.y2 - rect.y1);
+  const out = document.createElement("canvas");
+  out.width = w;
+  out.height = h;
+  const ctx = out.getContext("2d");
+  if(!transparentBg.checked) {
+    ctx.fillStyle = "#0b0d0e";
+    ctx.fillRect(0, 0, w, h);
+  }
+  ctx.drawImage(canvas, -rect.x1, -rect.y1);
+  return out;
+}
+
+function svgDocument(inner, dims, rect, bg) {
+  const w = rect ? (rect.x2 - rect.x1) : dims.width;
+  const h = rect ? (rect.y2 - rect.y1) : dims.height;
+  const open = rect ? '<g transform="translate(' + (-rect.x1) + " " + (-rect.y1) + ')">\n' : "";
+  const close = rect ? "\n</g>" : "";
+  return '<?xml version="1.0" encoding="UTF-8"?>\n' +
+    '<svg xmlns="http://www.w3.org/2000/svg" width="' + w + '" height="' + h +
+    '" viewBox="0 0 ' + w + ' ' + h + '">\n' + bg + '\n' + open + inner + close + '\n</svg>';
 }
 
 function updateBBoxOverlay() {
@@ -899,6 +932,10 @@ function updateBBoxOverlay() {
     return;
   }
   const u = unitInkBox(g.ch);
+  if(u.empty) {
+    bboxEl.hidden = true;
+    return;
+  }
   const s = g.size / currentUnitsPerEm();
   const left = g.x + u.x1 * s;
   const top = g.y + u.y1 * s;
@@ -1251,9 +1288,12 @@ async function exportFreePNG() {
     ctx.restore();
   });
 
+  const rect = trimExport.checked ? unionInkRect(freeGlyphs) : null;
+  const out = cropCanvas(canvas, rect);
+
   const a = document.createElement("a");
   a.download = safeName(freeSourceText()) + "-free.png";
-  a.href = canvas.toDataURL("image/png");
+  a.href = out.toDataURL("image/png");
   document.body.appendChild(a);
   a.click();
   a.remove();
@@ -1264,6 +1304,7 @@ async function exportFreeSVG() {
   const dim = freeCanvasSize();
   const useImported = Boolean(importedFontBuffer && importedOpenTypeFont);
   const parts = [];
+  const drawn = [];
 
   freeGlyphs.forEach((g) => {
     const color = g.color || fontColorHex.value;
@@ -1275,6 +1316,7 @@ async function exportFreeSVG() {
       const d = glyph.getPath(0, 0, g.size).toPathData(3);
       if(!d) return;
       parts.push(head + '">\n<path d="' + d + '" fill="' + color + '"/>\n</g>');
+      drawn.push(g);
       return;
     }
 
@@ -1283,14 +1325,12 @@ async function exportFreeSVG() {
     const s = g.size / OUTLINE_UNITS_PER_EM;
     parts.push(head + " scale(" + s.toFixed(8) + " " + (-s).toFixed(8) + ')">\n<path d="' +
       outline.d + '" fill="' + color + '"/>\n</g>');
+    drawn.push(g);
   });
 
   const bg = transparentBg.checked ? "" : '<rect width="100%" height="100%" fill="#0b0d0e"/>';
-  const svg =
-    '<?xml version="1.0" encoding="UTF-8"?>\n' +
-    '<svg xmlns="http://www.w3.org/2000/svg" width="' + dim.width + '" height="' + dim.height +
-    '" viewBox="0 0 ' + dim.width + ' ' + dim.height + '">\n' +
-    bg + '\n<g id="free-layout-outlines">\n' + parts.join("\n") + '\n</g>\n</svg>';
+  const rect = trimExport.checked ? unionInkRect(drawn) : null;
+  const svg = svgDocument('<g id="free-layout-outlines">\n' + parts.join("\n") + '\n</g>', dim, rect, bg);
 
   const blob = new Blob([svg], {type:"image/svg+xml;charset=utf-8"});
   const url = URL.createObjectURL(blob);
@@ -1315,16 +1355,6 @@ function measureSpacedText(ctx, text, letterSpacing) {
     if(i < text.length - 1) width += letterSpacing;
   }
   return width;
-}
-
-function drawSpacedText(ctx, text, x, y, letterSpacing) {
-  let cursor = x;
-  for(let i = 0; i < text.length; i++) {
-    const ch = text[i];
-    ctx.fillText(ch, cursor, y);
-    cursor += ctx.measureText(ch).width;
-    if(i < text.length - 1) cursor += letterSpacing;
-  }
 }
 
 async function exportPNG() {
@@ -1364,13 +1394,25 @@ async function exportPNG() {
   const ascent = metrics.actualBoundingBoxAscent || fontSize * 0.82;
   const firstY = pad + ascent;
 
+  const items = [];
   lines.forEach((line, i) => {
-    drawSpacedText(ctx, line, pad, firstY + i * lineHeight, ls);
+    const baseY = firstY + i * lineHeight;
+    let cursor = pad;
+    for(let c = 0; c < line.length; c++) {
+      const ch = line[c];
+      ctx.fillText(ch, cursor, baseY);
+      items.push({ch:ch, x:cursor, y:baseY, size:fontSize, rotate:0});
+      cursor += ctx.measureText(ch).width;
+      if(c < line.length - 1) cursor += ls;
+    }
   });
+
+  const rect = trimExport.checked ? unionInkRect(items) : null;
+  const out = cropCanvas(canvas, rect);
 
   const a = document.createElement("a");
   a.download = safeName(raw) + ".png";
-  a.href = canvas.toDataURL("image/png");
+  a.href = out.toDataURL("image/png");
   document.body.appendChild(a);
   a.click();
   a.remove();
@@ -1424,6 +1466,7 @@ async function exportSVG() {
     const width = Math.ceil(Math.max(1, ...widths) + pad * 2);
     const height = Math.ceil(Math.max(lineHeight, lines.length * lineHeight) + pad * 2);
     const paths = [];
+    const drawn = [];
 
     lines.forEach((line, lineIndex) => {
       let x = pad;
@@ -1444,6 +1487,7 @@ async function exportSVG() {
           paths.push(
             '<path d="' + d + '" fill="' + fontColorHex.value + '"/>'
           );
+          drawn.push({ch:line[i], x:x, y:baselineY, size:fontSize, rotate:0});
         }
 
         x += (glyph.advanceWidth || font.unitsPerEm * 0.6) * scale;
@@ -1455,14 +1499,8 @@ async function exportSVG() {
     const bg = transparentBg.checked
       ? ""
       : '<rect width="100%" height="100%" fill="#0b0d0e"/>';
-
-    const svg =
-      '<?xml version="1.0" encoding="UTF-8"?>\n' +
-      '<svg xmlns="http://www.w3.org/2000/svg" width="' + width +
-      '" height="' + height + '" viewBox="0 0 ' + width + ' ' + height + '">\n' +
-      bg + '\n<g id="imported-font-outlines">\n' +
-      paths.join("\n") +
-      '\n</g>\n</svg>';
+    const rect = trimExport.checked ? unionInkRect(drawn) : null;
+    const svg = svgDocument('<g id="imported-font-outlines">\n' + paths.join("\n") + '\n</g>', {width:width, height:height}, rect, bg);
 
     const blob = new Blob([svg], {type:"image/svg+xml;charset=utf-8"});
     const url = URL.createObjectURL(blob);
@@ -1489,6 +1527,7 @@ async function exportSVG() {
   const width = Math.ceil(Math.max(1, ...widths) + pad * 2);
   const height = Math.ceil(Math.max(lineHeight, lines.length * lineHeight) + pad * 2);
   const paths = [];
+  const drawn = [];
 
   lines.forEach((line, lineIndex) => {
     let x = pad;
@@ -1503,6 +1542,7 @@ async function exportSVG() {
           '" transform="translate(' + x.toFixed(3) + ' ' + baselineY.toFixed(3) +
           ') scale(' + scale.toFixed(8) + ' ' + (-scale).toFixed(8) + ')"/>'
         );
+        drawn.push({ch:ch, x:x, y:baselineY, size:fontSize, rotate:0});
       }
       x += glyphAdvance(ch, scale, fontSize);
       if(i < line.length - 1) x += ls;
@@ -1510,12 +1550,8 @@ async function exportSVG() {
   });
 
   const bg = transparentBg.checked ? "" : '<rect width="100%" height="100%" fill="#0b0d0e"/>';
-
-  const svg =
-    '<?xml version="1.0" encoding="UTF-8"?>\n' +
-    '<svg xmlns="http://www.w3.org/2000/svg" width="' + width + '" height="' + height +
-    '" viewBox="0 0 ' + width + ' ' + height + '">\n' +
-    bg + '\n<g id="EndfieldByButan-outlines">\n' + paths.join("\n") + '\n</g>\n</svg>';
+  const rect = trimExport.checked ? unionInkRect(drawn) : null;
+  const svg = svgDocument('<g id="EndfieldByButan-outlines">\n' + paths.join("\n") + '\n</g>', {width:width, height:height}, rect, bg);
 
   const blob = new Blob([svg], {type:"image/svg+xml;charset=utf-8"});
   const url = URL.createObjectURL(blob);
@@ -1533,6 +1569,11 @@ exportSvg.addEventListener("click", exportSVG);
 
 setColor("#F2F2EF");
 syncUI();
+
+document.fonts.ready.then(() => {
+  inkBoxCache.clear();
+  if(freeLayoutOn) renderFreeCanvas();
+});
 </script>
 </body>
 </html>
