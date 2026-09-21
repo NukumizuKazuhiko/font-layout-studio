@@ -20,6 +20,8 @@
   --muted:#90989a;
   --accent:#f0d63b;
   --guide:#4cc2ff;
+  --board-w:1120px;
+  --board-h:560px;
 }
 * { box-sizing:border-box; }
 body {
@@ -47,7 +49,7 @@ header {
 h1 {
   margin:0;
   font-family:"EndfieldByButan",sans-serif;
-  font-size:clamp(48px,8vw,96px);
+  font-size:96px;
   line-height:1;
   font-weight:normal;
 }
@@ -119,14 +121,14 @@ button.secondary {
 .previewbox {
   border:1px solid var(--line);
   background:var(--panel);
-  min-height:260px;
-  display:flex;
-  align-items:center;
   padding:28px;
-  overflow:hidden;
+  overflow:auto;
 }
 #preview {
-  width:100%;
+  width:var(--board-w);
+  margin:0 auto;
+  min-height:204px;
+  padding:52px 0;
   outline:none;
   font-family:"EndfieldByButan",sans-serif;
   font-size:96px;
@@ -149,8 +151,9 @@ button.secondary {
 }
 #freeCanvas {
   position:relative;
-  width:100%;
-  height:clamp(300px,48vh,540px);
+  width:var(--board-w);
+  height:var(--board-h);
+  margin:0 auto;
   overflow:hidden;
   touch-action:none;
   background-image:radial-gradient(circle,rgba(144,152,154,.16) 1px,transparent 1px);
@@ -277,7 +280,6 @@ select {
 @media(max-width:720px) {
   .controls { grid-template-columns:1fr; }
   .control.full { grid-column:auto; }
-  #preview { font-size:64px; }
   .glyph-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
 }
 </style>
