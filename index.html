@@ -133,6 +133,7 @@ button.secondary {
   margin:0 auto;
   min-height:204px;
   padding:52px 0;
+  text-align:center;
   outline:none;
   font-family:"EndfieldByButan",sans-serif;
   font-size:96px;
@@ -1395,7 +1396,8 @@ async function exportPNG() {
 
   const lineHeight = Math.ceil(fontSize * 1.12);
   const widths = lines.map(line => measureSpacedText(probeCtx, line || " ", ls));
-  const width = Math.ceil(Math.max(1, ...widths) + pad * 2);
+  const maxW = Math.max(1, ...widths);
+  const width = Math.ceil(maxW + pad * 2);
   const height = Math.ceil(Math.max(lineHeight, lines.length * lineHeight) + pad * 2);
 
   const canvas = document.createElement("canvas");
@@ -1419,7 +1421,7 @@ async function exportPNG() {
   const items = [];
   lines.forEach((line, i) => {
     const baseY = firstY + i * lineHeight;
-    let cursor = pad;
+    let cursor = pad + (maxW - widths[i]) / 2;
     for(let c = 0; c < line.length; c++) {
       const ch = line[c];
       ctx.fillText(ch, cursor, baseY);
@@ -1485,13 +1487,14 @@ async function exportSVG() {
       return w;
     });
 
-    const width = Math.ceil(Math.max(1, ...widths) + pad * 2);
+    const maxW = Math.max(1, ...widths);
+    const width = Math.ceil(maxW + pad * 2);
     const height = Math.ceil(Math.max(lineHeight, lines.length * lineHeight) + pad * 2);
     const paths = [];
     const drawn = [];
 
     lines.forEach((line, lineIndex) => {
-      let x = pad;
+      let x = pad + (maxW - widths[lineIndex]) / 2;
       const baselineY = pad + fontSize * 0.82 + lineIndex * lineHeight;
       let prevGlyph = null;
 
@@ -1546,13 +1549,14 @@ async function exportSVG() {
     return w;
   });
 
-  const width = Math.ceil(Math.max(1, ...widths) + pad * 2);
+  const maxW = Math.max(1, ...widths);
+  const width = Math.ceil(maxW + pad * 2);
   const height = Math.ceil(Math.max(lineHeight, lines.length * lineHeight) + pad * 2);
   const paths = [];
   const drawn = [];
 
   lines.forEach((line, lineIndex) => {
-    let x = pad;
+    let x = pad + (maxW - widths[lineIndex]) / 2;
     const baselineY = pad + fontSize * 0.82 + lineIndex * lineHeight;
 
     for(let i = 0; i < line.length; i++) {
