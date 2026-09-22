@@ -343,7 +343,6 @@ select {
         <button id="addHGuide" type="button" class="secondary">＋水平参考线</button>
         <button id="addVGuide" type="button" class="secondary">＋垂直参考线</button>
         <button id="clearGuides" type="button" class="secondary">清空参考线</button>
-        <span style="color:var(--muted);font-size:12px">拖拽字形自由摆放 · 参考线可拖动、双击删除 · 方向键微调 · [ ] 旋转 · - = 缩放 · Delete 删除</span>
       </div>
       <div id="glyphEditor" class="glyph-editor" hidden>
         <div class="row"><span>SELECTED GLYPH</span><span id="glyphEditorName">-</span></div>
@@ -384,22 +383,20 @@ select {
   </section>
 
   <div class="help">
-    默认字体与导入字体的 SVG 都会转换为 path 轮廓。opentype.js 已内嵌，整个工具可完全离线使用。内置字体除 EndfieldByButan 外，还内嵌 Noto Sans Hans Black 与 Novecento Wide UltraBold，在"内置字体"下拉中切换（首次切换时解码）。<br>
-    自由排版：启用后每个字符成为独立字形，可用鼠标 / 手指拖到任意位置，并单独设置字号、旋转角度与颜色；导出范围与画布完全一致（所见即所得）。<br>
-    参考线对齐：可添加水平 / 垂直参考线（拖动移动、双击删除）；拖动字形时自动吸附到参考线、画布中线与其他字形的碰撞箱边缘 / 中心，并显示黄色对齐线；"吸附：开 / 关"可随时切换是否吸附。<br>
-    碰撞箱：每个字形的对齐碰撞箱按「当前字体 + 该字」真实渲染逐字测量（含浏览器回退字体），不再套用统一模板；无墨迹的字（如空格）不参与吸附与裁切；选中字形时以黄色虚线框显示，旋转后同步旋转。<br>
-    导出裁切：勾选「自动裁切空白」后，PNG / SVG 只保留全部墨迹的外接矩形，去掉四周大片空白（普通模式与自由排版均生效）。
+    <strong style="color:var(--text)">使用说明</strong><br>
+    · 流程：输入文本 → 调样式 →（可选）启用自由排版逐字摆放 → 导出 PNG / SVG（字形转为 path 轮廓）。<br>
+    · 自由排版：拖拽摆放；选中字形可单独改字号 / 旋转 / 颜色；方向键微调、[ ] 旋转、- = 缩放、Delete 删除。<br>
+    · 参考线 / 吸附：参考线可拖动、双击删除；拖动字形自动吸附参考线、画布中线与其他字形碰撞箱的边缘 / 中心，「吸附」可开关。<br>
+    · 碰撞箱：按当前字体逐字实测墨迹，选中字形以黄色虚线框显示；空格等无墨迹字不参与吸附与裁切。<br>
+    · 导出：「自动裁切空白」仅保留墨迹外接矩形；「透明背景」控制底色；导出范围与画布完全一致。<br>
+    · 离线：单文件零网络依赖；内置字体在下拉中切换，首次切换时解码。
   </div>
 
   <div class="help" id="copyright">
     <strong style="color:var(--text)">版权与许可</strong><br>
-    前端代码（本页面全部 HTML / CSS / JavaScript，包括自由排版、参考线吸附、字形碰撞箱解析、PNG / SVG 导出等实现）以 <strong>GPL-3.0</strong> 许可发布，完整许可文本见仓库 LICENSE 文件。<br>
-    <strong>字体不属于本项目，版权归原作者 / 原厂商所有</strong>，此处仅为离线预览目的内嵌，GPL-3.0 不适用于任何字体文件：<br>
-    · EndfieldByButan —— 《明日方舟：终末地》相关同人字体，版权均属于原作者；<br>
-    · Noto Sans Hans Black —— Google，SIL Open Font License 1.1；<br>
-    · Novecento Wide UltraBold —— Sintype 商业字体，版权归原作者，如需分发或商用请自行取得授权。<br>
-    内嵌的 opentype.js 以 MIT 许可发布，版权归其原作者。<br>
-    项目地址：<a href="https://github.com/NukumizuKazuhiko/font-layout-studio" style="color:var(--accent)" rel="noopener">github.com/NukumizuKazuhiko/font-layout-studio</a>
+    前端代码以 <strong>GPL-3.0</strong> 发布（完整文本见仓库 LICENSE）。<strong>字体不属于本项目，GPL 不适用于字体文件</strong>，仅为离线预览目的内嵌：<br>
+    · EndfieldByButan —— 终末地相关同人字体，版权归原作者；· Noto Sans Hans Black —— Google，OFL 1.1；· Novecento Wide UltraBold —— Sintype 商业字体，分发 / 商用需自行取得授权。<br>
+    内嵌 opentype.js 为 MIT 许可。项目地址：<a href="https://github.com/NukumizuKazuhiko/font-layout-studio" style="color:var(--accent)" rel="noopener">github.com/NukumizuKazuhiko/font-layout-studio</a>
   </div>
 </main>
 
