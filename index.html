@@ -122,7 +122,11 @@ button.secondary {
   border:1px solid var(--line);
   background:var(--panel);
   padding:28px;
-  overflow:auto;
+  overflow:hidden;
+}
+#boardWrap {
+  width:var(--board-w);
+  transform-origin:0 0;
 }
 #preview {
   width:var(--board-w);
@@ -378,8 +382,10 @@ select {
   </section>
 
   <section class="previewbox" id="previewBox">
-    <div id="preview" contenteditable="true" spellcheck="false">FIELDWORK</div>
-    <div id="freeCanvas" hidden></div>
+    <div id="boardWrap">
+      <div id="preview" contenteditable="true" spellcheck="false">FIELDWORK</div>
+      <div id="freeCanvas" hidden></div>
+    </div>
   </section>
 
   <div class="help">
@@ -431,6 +437,7 @@ const importFontBtn = document.getElementById("importFontBtn");
 const resetFontBtn = document.getElementById("resetFontBtn");
 const fontStatus = document.getElementById("fontStatus");
 const previewBox = document.getElementById("previewBox");
+const boardWrap = document.getElementById("boardWrap");
 const freeCanvas = document.getElementById("freeCanvas");
 const freeToggle = document.getElementById("freeToggle");
 const freeArrange = document.getElementById("freeArrange");
@@ -471,6 +478,7 @@ let guideSeq = 0;
 let guideDrag = null;
 let snapEnabled = true;
 let inkBoxCache = new Map();
+let boardScale = 1;
 let bboxEl = null;
 const SNAP_THRESHOLD = 6;
 
@@ -948,9 +956,8 @@ function updateBBoxOverlay() {
 }
 
 function buildSnapTargets(skipIndex) {
-  const rect = freeCanvas.getBoundingClientRect();
-  const xs = [0, rect.width / 2, rect.width];
-  const ys = [0, rect.height / 2, rect.height];
+  const xs = [0, freeCanvas.clientWidth / 2, freeCanvas.clientWidth];
+  const ys = [0, freeCanvas.clientHeight / 2, freeCanvas.clientHeight];
   guides.forEach((gd) => {
     if(gd.axis === "v") xs.push(gd.pos);
     else ys.push(gd.pos);
@@ -1043,6 +1050,7 @@ function enterFreeLayout() {
   syncGlyphEditor();
   freeToggle.textContent = "退出自由排版";
   freeToggle.classList.remove("secondary");
+  syncBoardScale();
 }
 
 function exitFreeLayout() {
@@ -1063,6 +1071,7 @@ function exitFreeLayout() {
   freeToggle.textContent = "启用自由排版";
   freeToggle.classList.add("secondary");
   updateFreeStatus();
+  syncBoardScale();
 }
 
 freeToggle.addEventListener("click", () => {
@@ -1147,7 +1156,7 @@ freeCanvas.addEventListener("pointermove", (e) => {
       return;
     }
     const cur = guideDrag.axis === "h" ? e.clientY : e.clientX;
-    gd.pos = Math.round(guideDrag.origin + (cur - guideDrag.start));
+    gd.pos = Math.round(guideDrag.origin + (cur - guideDrag.start) / boardScale);
     if(guideDrag.axis === "h") guideDrag.el.style.top = gd.pos + "px";
     else guideDrag.el.style.left = gd.pos + "px";
     e.preventDefault();
@@ -1156,8 +1165,8 @@ freeCanvas.addEventListener("pointermove", (e) => {
   if(!dragState || e.pointerId !== dragState.pointerId) return;
   const g = freeGlyphs[dragState.index];
   if(!g) return;
-  g.x = Math.round(dragState.originX + (e.clientX - dragState.startX));
-  g.y = Math.round(dragState.originY + (e.clientY - dragState.startY));
+  g.x = Math.round(dragState.originX + (e.clientX - dragState.startX) / boardScale);
+  g.y = Math.round(dragState.originY + (e.clientY - dragState.startY) / boardScale);
   if(snapEnabled && dragState.targets) {
     const snapped = applySnap(g, dragState.targets);
     if(smartVEl) {
@@ -1210,13 +1219,13 @@ snapToggle.addEventListener("click", () => {
 
 addHGuide.addEventListener("click", () => {
   if(!freeLayoutOn) return;
-  guides.push({id:++guideSeq, axis:"h", pos:Math.round(freeCanvas.getBoundingClientRect().height / 2)});
+  guides.push({id:++guideSeq, axis:"h", pos:Math.round(freeCanvas.clientHeight / 2)});
   renderGuides();
 });
 
 addVGuide.addEventListener("click", () => {
   if(!freeLayoutOn) return;
-  guides.push({id:++guideSeq, axis:"v", pos:Math.round(freeCanvas.getBoundingClientRect().width / 2)});
+  guides.push({id:++guideSeq, axis:"v", pos:Math.round(freeCanvas.clientWidth / 2)});
   renderGuides();
 });
 
@@ -1256,11 +1265,25 @@ document.addEventListener("keydown", (e) => {
 });
 
 function freeCanvasSize() {
-  const rect = freeCanvas.getBoundingClientRect();
   return {
-    width:Math.max(1, Math.round(rect.width)),
-    height:Math.max(1, Math.round(rect.height))
+    width:Math.max(1, freeCanvas.clientWidth),
+    height:Math.max(1, freeCanvas.clientHeight)
   };
+}
+
+function syncBoardScale() {
+  const cs = getComputedStyle(previewBox);
+  const padX = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
+  const padY = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+  const availW = previewBox.clientWidth - padX;
+  const logicalW = Math.max(1, boardWrap.offsetWidth);
+  const logicalH = freeLayoutOn ? freeCanvas.offsetHeight : preview.offsetHeight;
+  const s = Math.min(1, availW / logicalW);
+  boardScale = s;
+  boardWrap.style.transform = s < 1 ? "scale(" + s + ")" : "";
+  boardWrap.style.marginLeft = Math.max(0, (availW - logicalW * s) / 2) + "px";
+  boardWrap.style.height = logicalH + "px";
+  previewBox.style.height = (Math.ceil(logicalH * s + padY) + 2) + "px";
 }
 
 async function exportFreePNG() {
@@ -1572,7 +1595,12 @@ syncUI();
 document.fonts.ready.then(() => {
   inkBoxCache.clear();
   if(freeLayoutOn) renderFreeCanvas();
+  syncBoardScale();
 });
+
+window.addEventListener("resize", syncBoardScale);
+new ResizeObserver(syncBoardScale).observe(preview);
+syncBoardScale();
 </script>
 </body>
 </html>
